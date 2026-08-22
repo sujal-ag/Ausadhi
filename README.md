@@ -4,6 +4,23 @@ Ausadhi is a full-stack healthcare appointment platform that I designed, built, 
 
 The platform supports doctor discovery, appointment booking, online payments, WhatsApp-based booking, AI-assisted symptom triage, automated appointment reminders, and role-specific doctor/admin workflows.
 
+
+## Table of Contents
+
+- [Live Demo](#live-demo)
+- [Screenshots](#screenshots)
+- [Repositories](#repositories)
+- [System Overview](#system-overview)
+- [Key Features](#key-features)
+- [Architecture & Engineering Decisions](#architecture--engineering-decisions)
+- [Authentication & Security](#authentication--security)
+- [Tech Stack](#tech-stack)
+- [Data Model](#data-model)
+- [Deployment](#deployment)
+- [CI/CD](#cicd)
+- [Engineering Highlights](#engineering-highlights)
+- [Repository Structure](#repository-structure)
+
 ## Live Demo
 
 - [ausadhi.in](https://ausadhi.in)
@@ -47,21 +64,6 @@ The platform supports doctor discovery, appointment booking, online payments, Wh
 
 </details>
 
-## Table of Contents
-
-- [Live Demo](#live-demo)
-- [Screenshots](#screenshots)
-- [Repositories](#repositories)
-- [System Overview](#system-overview)
-- [Key Features](#key-features)
-- [Architecture & Engineering Decisions](#architecture--engineering-decisions)
-- [Authentication & Security](#authentication--security)
-- [Tech Stack](#tech-stack)
-- [Data Model](#data-model)
-- [Deployment](#deployment)
-- [CI/CD](#cicd)
-- [Engineering Highlights](#engineering-highlights)
-- [Repository Structure](#repository-structure)
 
 ## Repositories
 
