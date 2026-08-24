@@ -4,6 +4,8 @@ Ausadhi is a full-stack healthcare appointment platform that I designed, built, 
 
 The platform supports doctor discovery, appointment booking, online payments, WhatsApp-based booking, AI-assisted symptom triage, automated appointment reminders, and role-specific doctor/admin workflows.
 
+Live at - ausadhi.in
+
 
 ## Table of Contents
 
