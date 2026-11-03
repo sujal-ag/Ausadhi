@@ -4,9 +4,6 @@ Ausadhi is a full-stack healthcare appointment platform that I designed, built, 
 
 The platform supports doctor discovery, appointment booking, online payments, WhatsApp-based booking, AI-assisted symptom triage, automated appointment reminders, and role-specific doctor/admin workflows.
 
-Live at - [ausadhi.in](https://ausadhi.in)
-
-
 ## Table of Contents
 
 - [Live Demo](#live-demo)
@@ -20,6 +17,7 @@ Live at - [ausadhi.in](https://ausadhi.in)
 - [Data Model](#data-model)
 - [Deployment](#deployment)
 - [CI/CD](#cicd)
+- [Testing](#testing)
 - [Engineering Highlights](#engineering-highlights)
 - [Repository Structure](#repository-structure)
 
@@ -92,6 +90,7 @@ flowchart LR
     N8N[n8n Automation]
     WA[WhatsApp Business API]
     AYU[Ayu AI]
+    RS[Resend Email]
 
     P -->|REST API| B
     A -->|REST API| B
@@ -103,8 +102,9 @@ flowchart LR
     P --> AYU
     AYU --> N8N
 
-    N8N -->|WhatsApp Booking| WA
-    N8N -->|Appointment Reminders| B
+    N8N <-->|WhatsApp Booking| WA
+    N8N -->|Booking + Reminder Lookups| B
+    N8N -->|Reminder Emails| RS
 ```
 
 ### Applications
@@ -116,8 +116,10 @@ flowchart LR
 ### Automation
 
 - **n8n** acts as the automation layer for WhatsApp booking and appointment reminder workflows.
-- Appointment reminders are automatically triggered **24 hours and 1 hour before the scheduled appointment**.
-- WhatsApp is used as an additional appointment-booking channel.
+- Appointment reminders are automatically triggered **24 hours and 2 hours before the scheduled appointment**.
+- WhatsApp is used as an additional appointment-booking channel. n8n collects booking details over WhatsApp and calls the backend's booking endpoint, which creates the appointment and returns a Razorpay payment link.
+- An n8n AI agent (OpenRouter chat model with MongoDB-backed memory) handles the WhatsApp conversation: it collects patient details, speciality, doctor, date and time slot, confirms the summary, then books and replies with the payment link.
+- A scheduled n8n workflow polls the backend's reminder endpoint every 30 minutes for confirmed appointments in the upcoming 24-hour and 2-hour windows and sends reminder emails via Resend.
 
 ---
 
@@ -138,8 +140,7 @@ flowchart LR
 - Doctor authentication
 - Doctor profile management
 - Appointment listing
-- Appointment status management
-- Appointment completion
+- Marking appointments as completed
 
 ### Admin
 
@@ -154,7 +155,7 @@ flowchart LR
 
 - WhatsApp-based appointment booking
 - Automated appointment reminders
-- **24-hour and 1-hour pre-appointment reminders**
+- **24-hour and 2-hour pre-appointment reminders**
 - n8n workflow orchestration
 - AI-assisted symptom collection and triage
 
@@ -207,7 +208,7 @@ Current workflows include:
 - WhatsApp appointment booking
 - Appointment reminder scheduling
 - **24-hour pre-appointment reminders**
-- **1-hour pre-appointment reminders**
+- **2-hour pre-appointment reminders**
 - AI-assisted patient interactions
 
 This separates time-based and automation-heavy workflows from the core backend API and keeps them independently configurable.
@@ -222,15 +223,17 @@ Ausadhi uses JWT-based authentication with HTTP-only cookies.
 
 The authentication system includes:
 
-- Short-lived access tokens
-- Long-lived refresh tokens
-- HTTP-only cookies
-- Refresh-token rotation
-- Database-backed refresh-token validation
+- Access tokens (1 day) and refresh tokens (7 days), both configurable via environment variables
+- HTTP-only, `SameSite=Strict` cookies (`Secure` in production)
+- Refresh-token rotation on every refresh (patients)
+- Database-backed refresh-token validation (patients)
 - Role-based authorization for patients, doctors, and admins
+- bcrypt password hashing for patients and doctors
 - Axios request/response interceptors
 - Proactive and reactive access-token refresh
 - Concurrent request handling during token refresh
+
+Doctor and admin sessions currently use access tokens only. Admin credentials are configured through environment variables rather than stored in the database.
 
 The frontend also maintains non-sensitive authentication state in local storage for UI purposes. Authentication authority remains server-side.
 
@@ -249,11 +252,12 @@ Detailed implementation is documented in the individual frontend and backend rep
 | Authentication | JWT, HTTP-only cookies |
 | Payments | Razorpay |
 | Image Storage | Cloudinary |
-| Automation | n8n |
-| Messaging | WhatsApp Business API |
-| Email | Resend |
+| Automation | n8n, OpenRouter (WhatsApp AI agent) |
+| Messaging | WhatsApp Business API (via n8n) |
+| Email | Resend (via n8n) |
 | Infrastructure | Docker, Docker Compose, Nginx, Azure VM |
 | CI/CD | GitHub Actions |
+| Testing | Jest, Supertest, mongodb-memory-server |
 
 ---
 
@@ -262,58 +266,61 @@ Detailed implementation is documented in the individual frontend and backend rep
 The core backend data model revolves around users, doctors, appointments, and payments.
 
 ```text
-User
- │
- ├───────────────┐
- │               │
- ▼               ▼
-Appointment    Payment
- ▲
- │
-Doctor
+User ──────────┬──────────────┐
+               │              │
+               ▼              ▼
+          Appointment ◄──── Payment
+               ▲
+               │
+Doctor ────────┘
 ```
 
 **User**
 - `name`
-- `email`
-- `password` (hashed)
-- `role` (patient / doctor / admin)
-- `profileImage`
-- `createdAt`
+- `email` (unique)
+- `password` (bcrypt-hashed)
+- `image`
+- `phone`, `gender`, `dob`, `address`
+- `refreshToken`
+- `createdAt`, `updatedAt`
 
 **Doctor**
 - `name`
-- `speciality`
-- `email`
-- `password` (hashed)
-- `profileImage`
+- `email` (unique)
+- `password` (bcrypt-hashed)
+- `speciality`, `degree`, `experience`, `about`
+- `image`
 - `fees`
-- `availability`
-- `createdAt`
+- `available`
+- `address`
+- `slot_booked` (booked slot times keyed by date)
+- `createdAt`, `updatedAt`
 
 **Appointment**
 - `userId` (ref: User)
 - `doctorId` (ref: Doctor)
-- `date`
-- `time`
-- `status` (pending / confirmed / cancelled / completed)
-- `bookingChannel` (web / WhatsApp)
-- `createdAt`
-- `updatedAt`
+- `slotDate`
+- `slotTime`
+- `amount`
+- `orderId` (Razorpay order)
+- `payment` (paid / unpaid)
+- `status` (Pending / Confirmed / Completed / Cancelled)
+- `createdAt`, `updatedAt`
 
 **Payment**
 - `appointmentId` (ref: Appointment)
+- `userId` (ref: User)
 - `amount`
-- `razorpayOrderId`
-- `razorpayPaymentId`
-- `status` (pending / verified / failed)
-- `createdAt`
+- `orderId`, `paymentId`, `signature` (Razorpay)
+- `paymentStatus` (pending / completed / failed)
+- `createdAt`, `updatedAt`
 
 Relationships:
 - A **User** can have multiple appointments.
 - A **Doctor** can handle multiple appointments.
 - An **Appointment** references both the corresponding user and doctor.
-- An **Appointment** can have an associated payment record.
+- An **Appointment** can have an associated **Payment** record, which also references the paying user.
+- Slot double-booking is prevented with an atomic conditional update on the doctor's `slot_booked` map.
 - Payment records maintain transaction and verification state separately from the appointment lifecycle.
 
 See the detailed schema in the [Backend repository](https://github.com/sujal-ag/Ausadhi-backend).
@@ -350,28 +357,15 @@ This keeps the three independently deployed applications (Patient Frontend, Back
 
 ---
 
-### Patient Application
+## Testing
 
-- Home / doctor discovery
-- Speciality filtering
-- Doctor profile
-- Appointment booking
-- Payment flow
-- Patient profile
-- Ayu AI chat
+The backend has a Jest + Supertest suite covering the most critical flows: authentication, token refresh/rotation, role-based route protection, appointment booking (including double-booking prevention) and Razorpay signature verification. Tests run against an in-memory MongoDB instance, so no external services are needed.
 
-### Admin Console
-
-- Admin dashboard
-- Doctor onboarding
-- Doctor management
-- Appointment management
-
-### Doctor Console
-
-- Doctor dashboard
-- Doctor profile
-- Appointment management
+```bash
+cd backend
+npm install
+npm test
+```
 
 ---
 
@@ -383,15 +377,16 @@ This keeps the three independently deployed applications (Patient Frontend, Back
 - Promise-based queue for concurrent `401` requests
 - `_retry` protection against refresh loops
 - Role-based authorization for patient, doctor, and admin workflows
-- Razorpay payment verification
+- Razorpay payment verification (HMAC-SHA256 signature check)
 - Cloudinary image upload pipeline
 - Separate patient and operational frontend applications
 - Dockerized deployments
 - Nginx reverse proxy and SSL configuration
 - Azure VM deployment
+- Automated backend tests with Jest and Supertest
 - GitHub Actions CI/CD with SSH-based deploy and Docker Compose rebuild
 - n8n-based automation workflows
-- **Automated 24-hour and 1-hour appointment reminders**
+- **Automated 24-hour and 2-hour appointment reminders**
 - WhatsApp appointment booking
 - AI-assisted symptom triage
 
@@ -415,9 +410,3 @@ Ausadhi
 ```
 
 See the individual repositories for implementation details, setup instructions, API documentation, environment configuration, and deployment instructions.
-
-## Repositories
-
-- [Patient Frontend](https://github.com/sujal-ag/Ausadhi-frontend)
-- [Backend API](https://github.com/sujal-ag/Ausadhi-backend)
-- [Admin + Doctor Console](https://github.com/sujal-ag/Ausadhi-admin)
